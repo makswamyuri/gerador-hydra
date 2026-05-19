@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerador de Propostas - Hydra</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7fc; display: flex; justify-content: center; padding: 20px; }
+        .container { max-width: 800px; width: 100%; background: white; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); overflow: hidden; }
+        .header { background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 25px 30px; text-align: center; position: relative; }
+        .header h1 { font-size: 2rem; font-weight: 600; margin-bottom: 5px; }
+        .badge { background: rgba(255,255,255,0.2); padding: 5px 12px; border-radius: 20px; font-size: 0.8rem; display: inline-block; }
+        .counter { background: #e8f0fe; padding: 12px 30px; text-align: center; font-weight: 500; border-bottom: 1px solid #e0e7f0; }
+        .counter.warning { background: #fff3cd; }
+        .counter.danger { background: #fce4e4; }
+        .form-area { padding: 30px; }
+        label { font-weight: 600; color: #2c3e50; margin-bottom: 8px; display: block; }
+        textarea, input { width: 100%; padding: 12px 15px; border: 1px solid #dce4f0; border-radius: 8px; margin-bottom: 20px; font-family: inherit; resize: vertical; transition: border 0.2s; }
+        textarea:focus, input:focus { outline: none; border-color: #2d5a87; }
+        .btn { background: #27ae60; color: white; border: none; padding: 14px 28px; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; width: 100%; transition: background 0.2s; }
+        .btn:hover { background: #219a52; }
+        .btn:disabled { background: #b0c4de; cursor: not-allowed; }
+        .result { padding: 30px; border-top: 1px solid #e0e7f0; display: none; }
+        .result.active { display: block; }
+        .proposta-texto { background: #f8fafd; padding: 20px; border-radius: 8px; border: 1px solid #e0e7f0; line-height: 1.7; white-space: pre-wrap; }
+        .btn-pdf { background: #2d5a87; margin-top: 15px; }
+        .btn-pdf:hover { background: #1e3a5f; }
+        .paywall { display: none; padding: 30px; text-align: center; background: #f8fafd; border-top: 1px solid #e0e7f0; }
+        .paywall.active { display: block; }
+        .paywall h2 { color: #2c3e50; margin-bottom: 15px; }
+        .paywall .btn-assinar { background: #e67e22; color: white; padding: 14px 28px; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; text-decoration: none; display: inline-block; }
+        .historico { padding: 20px 30px; border-top: 1px solid #e0e7f0; }
+        .historico h3 { color: #2c3e50; margin-bottom: 10px; }
+        .historico ul { list-style: none; }
+        .historico li { background: #f8fafd; padding: 10px 15px; border-radius: 6px; margin-bottom: 8px; cursor: pointer; border: 1px solid #e0e7f0; }
+        .historico li:hover { background: #e8f0fe; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚡ Gerador de Propostas</h1>
+            <span class="badge">Hydra Tools</span>
+        </div>
+        <div id="counterDisplay" class="counter">Propostas gratuitas restantes: <strong>3</strong></div>
+        
+        <div id="formArea" class="form-area">
+            <label>Qual a solicitação do cliente?</label>
+            <textarea id="solicitacao" rows="5" placeholder="Ex: Quero um orçamento para uma loja virtual de camisetas..."></textarea>
+            <label>Diferenciais da sua empresa</label>
+            <input type="text" id="diferenciais" placeholder="Ex: 10 anos de mercado, suporte 24h...">
+            <button id="btnGerar" class="btn" onclick="gerarProposta()">Gerar Proposta</button>
+        </div>
+
+        <div id="resultArea" class="result">
+            <h3 style="margin-bottom:15px;">📄 Proposta Gerada</h3>
+            <div id="propostaTexto" class="proposta-texto"></div>
+            <button class="btn btn-pdf" onclick="baixarPDF()">Baixar PDF</button>
+        </div>
+
+        <div id="paywall" class="paywall">
+            <h2>Limite de testes gratuitos atingido.</h2>
+            <p style="margin-bottom:20px;">Para uso ilimitado, assine nosso plano.</p>
+            <a href="https://exemplo.com" class="btn-assinar" id="linkAssinar">Assinar Agora por R$49/mês</a>
+        </div>
+
+        <div class="historico" id="historicoArea" style="display:none;">
+            <h3>📋 Histórico de Propostas</h3>
+            <ul id="listaHistorico"></ul>
+        </div>
+    </div>
+
+    <script>
+        // Lógica de contagem local e envio
+        const MAX_FREE = 3;
+        const STORAGE_KEY = 'hydra_free_uses';
+        
+        function getUses() {
+            return parseInt(localStorage.getItem(STORAGE_KEY) || '0');
+        }
+        function setUses(val) {
+            localStorage.setItem(STORAGE_KEY, val);
+            atualizarContador();
+        }
+        function atualizarContador() {
+            const usos = getUses();
+            const restantes = Math.max(0, MAX_FREE - usos);
+            const counterEl = document.getElementById('counterDisplay');
+            counterEl.innerHTML = `Propostas gratuitas restantes: <strong>${restantes}</strong>`;
+            counterEl.className = 'counter';
+            if (restantes === 0) {
+                counterEl.classList.add('danger');
+                document.getElementById('formArea').style.display = 'none';
+                document.getElementById('paywall').classList.add('active');
+            } else if (restantes === 1) {
+                counterEl.classList.add('warning');
+            }
+        }
+
+        async function gerarProposta() {
+            const solicitacao = document.getElementById('solicitacao').value.trim();
+            const diferenciais = document.getElementById('diferenciais').value.trim();
+            if (!solicitacao) return alert('Por favor, descreva a solicitação.');
+
+            const usos = getUses();
+            if (usos >= MAX_FREE) {
+                document.getElementById('formArea').style.display = 'none';
+                document.getElementById('paywall').classList.add('active');
+                return;
+            }
+
+            document.getElementById('btnGerar').disabled = true;
+            document.getElementById('btnGerar').textContent = 'Gerando...';
+
+            try {
+                const response = await fetch('/gerar-proposta', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ solicitacao, diferenciais })
+                });
+
+                if (response.status === 429) {
+                    setUses(MAX_FREE);
+                    atualizarContador();
+                    return;
+                }
+
+                const data = await response.json();
+                if (data.erro) {
+                    alert(data.erro);
+                    return;
+                }
+
+                document.getElementById('propostaTexto').textContent = data.proposta;
+                document.getElementById('resultArea').classList.add('active');
+                
+                setUses(usos + 1);
+                salvarHistorico(solicitacao, data.proposta);
+            } catch (err) {
+                alert('Erro ao gerar proposta. Tente novamente.');
+            } finally {
+                document.getElementById('btnGerar').disabled = false;
+                document.getElementById('btnGerar').textContent = 'Gerar Proposta';
+            }
+        }
+
+        function salvarHistorico(solicitacao, proposta) {
+            let historico = JSON.parse(localStorage.getItem('hydra_historico') || '[]');
+            historico.unshift({ solicitacao, proposta, data: new Date().toLocaleString() });
+            if (historico.length > 5) historico.pop();
+            localStorage.setItem('hydra_historico', JSON.stringify(historico));
+            carregarHistorico();
+        }
+
+        function carregarHistorico() {
+            const historico = JSON.parse(localStorage.getItem('hydra_historico') || '[]');
+            const lista = document.getElementById('listaHistorico');
+            const area = document.getElementById('historicoArea');
+            if (historico.length === 0) { area.style.display = 'none'; return; }
+            area.style.display = 'block';
+            lista.innerHTML = historico.map((h, i) => 
+                `<li onclick="visualizarHistorico(${i})">📝 ${h.solicitacao.substring(0, 60)}... - <small>${h.data}</small></li>`
+            ).join('');
+        }
+
+        function visualizarHistorico(index) {
+            const historico = JSON.parse(localStorage.getItem('hydra_historico') || '[]');
+            if (historico[index]) {
+                document.getElementById('propostaTexto').textContent = historico[index].proposta;
+                document.getElementById('resultArea').classList.add('active');
+            }
+        }
+
+        function baixarPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const texto = document.getElementById('propostaTexto').textContent;
+            doc.setFontSize(11);
+            doc.text(texto, 10, 10, { maxWidth: 190 });
+            doc.save('proposta-hydra.pdf');
+        }
+
+        window.onload = () => {
+            atualizarContador();
+            carregarHistorico();
+        };
+    </script>
+</body>
+</html>
